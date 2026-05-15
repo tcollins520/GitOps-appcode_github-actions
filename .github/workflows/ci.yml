@@ -1,0 +1,145 @@
+name: GitOps CI/CD Pipeline
+
+on:
+  pull_request:
+    branches:
+      - main
+
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: vprofileappimg
+  GITOPS_REPO: https://github.com/tcollins520/vprofile-gitops.git
+
+jobs:
+
+  # -----------------------------
+  # PR VALIDATION PIPELINE
+  # -----------------------------
+  pull-request-checks:
+
+    if: github.event_name == 'pull_request'
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Build Application
+        run: mvn -s settings.xml clean install -DskipTests
+
+      - name: Run Unit Tests
+        run: mvn -s settings.xml test
+
+      - name: Run Checkstyle
+        run: mvn -s settings.xml checkstyle:checkstyle
+
+      - name: SonarQube Scan
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          mvn sonar:sonar \
+          -Dsonar.projectKey=vprofile \
+          -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
+          -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+
+  # -----------------------------
+  # BUILD + PUSH + GITOPS UPDATE
+  # -----------------------------
+  build-and-deploy:
+
+    if: github.event_name == 'push'
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Build Application
+        run: mvn -s settings.xml clean install -DskipTests
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set Image Variables
+        run: |
+          echo "IMAGE_TAG=${GITHUB_SHA::7}" >> $GITHUB_ENV
+          echo "ECR_IMAGE=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}" >> $GITHUB_ENV
+
+      - name: Build Docker Image
+        run: |
+          docker build \
+          -t $ECR_IMAGE:$IMAGE_TAG \
+          -f Docker-files/app/multistage/Dockerfile .
+
+      - name: Push Docker Image
+        run: |
+          docker push $ECR_IMAGE:$IMAGE_TAG
+          docker tag $ECR_IMAGE:$IMAGE_TAG $ECR_IMAGE:latest
+          docker push $ECR_IMAGE:latest
+
+      # -----------------------------
+      # UPDATE GITOPS REPOSITORY
+      # -----------------------------
+
+      - name: Clone GitOps Repository
+        run: |
+          git clone https://${{ secrets.GITOPS_TOKEN }}@github.com/tcollins520/vprofile-gitops.git
+
+      - name: Install yq
+        run: |
+          sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 \
+          -O /usr/bin/yq
+          sudo chmod +x /usr/bin/yq
+
+      - name: Update Helm values.yaml
+        run: |
+          cd vprofile-gitops
+
+          yq eval '
+          .appimage.repository = env(ECR_IMAGE) |
+          .appimage.tag = env(IMAGE_TAG)
+          ' -i helm/vproappcharts/values.yaml
+
+      - name: Commit Updated Helm Values
+        run: |
+          cd vprofile-gitops
+
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          git add .
+
+          git commit -m "Updated image tag to ${IMAGE_TAG}" || echo "No changes to commit"
+
+          git push
+

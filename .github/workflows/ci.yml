@@ -12,6 +12,8 @@ env:
   AWS_REGION: ${{ vars.AWS_REGION }}
   ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
   HELM_REPO_NAME: ${{ vars.HELM_REPO_NAME }}
+  HELM_REPO_USER: ${{ secrets.HELM_REPO_USER }}
+  GITOPS_PAT: ${{ secrets.GITOPS_PAT }}
   SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
 jobs:
@@ -103,11 +105,13 @@ jobs:
           echo "ecr_image=${IMAGE_NAME}" >> $GITHUB_OUTPUT
           echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
 
+
   update-helm:
     if: github.event_name == 'push'
     name: Update Helm values in separate repo
     runs-on: ubuntu-latest
     needs: docker-build-push
+
     steps:
       - name: Checkout workflow repo
         uses: actions/checkout@v4
@@ -119,13 +123,17 @@ jobs:
           sudo chmod +x /usr/local/bin/yq
 
       - name: Clone Helm repository
+        env:
+          GITOPS_PAT: ${{ secrets.GITOPS_PAT }}
+
         run: |
-          git clone https://${{ secrets.HELM_REPO_USER }}:${{ secrets.GITOPS_PAT }}@github.com/${{ github.repository_owner }}/${{ env.HELM_REPO_NAME }}.git helm-repo
+          git clone https://${HELM_REPO_USER}:${GITOPS_PAT}@github.com/${{ github.repository_owner }}/${HELM_REPO_NAME}.git helm-repo
 
       - name: Update Helm values.yaml image and tag
         run: |
           cd helm-repo
           yq eval '.app.image = env(ECR_IMAGE) | .app.tag = env(IMAGE_TAG)' -i helm/vproappchartsArgo/values.yaml
+
         env:
           IMAGE_TAG: ${{ needs.docker-build-push.outputs.image_tag }}
           ECR_IMAGE: ${{ needs.docker-build-push.outputs.ecr_image }}
@@ -133,8 +141,10 @@ jobs:
       - name: Commit and push Helm repo update
         run: |
           cd helm-repo
+
           git config user.name "github-actions"
           git config user.email "actions@github.com"
+
           if ! git diff --quiet; then
             git add helm/vproappchartsArgo/values.yaml
             git commit -m "Update Helm app.image and app.tag to ${IMAGE_TAG} on main"
@@ -142,7 +152,7 @@ jobs:
           else
             echo "No changes to commit"
           fi
+
         env:
           IMAGE_TAG: ${{ needs.docker-build-push.outputs.image_tag }}
-          GIT_AUTHOR_NAME: github-actions
-          GIT_AUTHOR_EMAIL: actions@github.com
+

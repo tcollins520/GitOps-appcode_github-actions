@@ -1,7 +1,5 @@
 This repository contains the application source code and the GitHub Actions workflow that drives the entire deployment pipeline.
 
-This repository contains the application source code and the GitHub Actions workflow that drives the entire deployment pipeline.
-
 🚀 Pipeline Overview
 This repo implements a multi‑stage GitHub Actions workflow:
 

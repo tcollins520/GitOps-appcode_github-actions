@@ -105,7 +105,6 @@ jobs:
           echo "ecr_image=${IMAGE_NAME}" >> $GITHUB_OUTPUT
           echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
 
-
   update-helm:
     if: github.event_name == 'push'
     name: Update Helm values in separate repo
@@ -122,15 +121,17 @@ jobs:
           sudo curl -L "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" -o /usr/local/bin/yq
           sudo chmod +x /usr/local/bin/yq
 
-      - name: Clone Helm repository
-        run: |
-          git clone https://${{ secrets.HELM_REPO_USER }}:${{ secrets.GITOPS_PAT }}@github.com/tcollins520/${{ env.HELM_REPO_NAME }}.git helm-repo
+      - name: Checkout Helm repository securely
+        uses: actions/checkout@v4
+        with:
+          repository: tcollins520/${{ env.HELM_REPO_NAME }}
+          token: ${{ secrets.GITOPS_PAT }}
+          path: helm-repo
 
       - name: Update Helm values.yaml image and tag
         run: |
           cd helm-repo
           yq eval '.app.image = env(ECR_IMAGE) | .app.tag = env(IMAGE_TAG)' -i helm/vproappchartsArgo/values.yaml
-
         env:
           IMAGE_TAG: ${{ needs.docker-build-push.outputs.image_tag }}
           ECR_IMAGE: ${{ needs.docker-build-push.outputs.ecr_image }}
@@ -138,7 +139,6 @@ jobs:
       - name: Commit and push Helm repo update
         run: |
           cd helm-repo
-
           git config user.name "github-actions"
           git config user.email "actions@github.com"
 
@@ -149,7 +149,7 @@ jobs:
           else
             echo "No changes to commit"
           fi
-
         env:
           IMAGE_TAG: ${{ needs.docker-build-push.outputs.image_tag }}
+
 

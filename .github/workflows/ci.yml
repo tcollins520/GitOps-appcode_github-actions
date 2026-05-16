@@ -123,15 +123,13 @@ jobs:
           sudo chmod +x /usr/local/bin/yq
 
       - name: Clone Helm repository
-        env:
-          GITOPS_PAT: ${{ secrets.GITOPS_PAT }}
-
         run: |
-          git clone "https://${HELM_REPO_USER}:${GITOPS_PAT}@github.com/${{ github.repository_owner }}/${HELM_REPO_NAME}.git"
+          git clone https://${{ secrets.HELM_REPO_USER }}:${{ secrets.GITOPS_PAT }}@github.com/${{ github.repository_owner }}/${{ env.HELM_REPO_NAME }}.git helm-repo
+
 
       - name: Update Helm values.yaml image and tag
         run: |
-          cd GitOps-helm-ArgoCD
+          cd helm-repo
           yq eval '.app.image = env(ECR_IMAGE) | .app.tag = env(IMAGE_TAG)' -i helm/vproappchartsArgo/values.yaml
 
         env:
@@ -140,7 +138,7 @@ jobs:
 
       - name: Commit and push Helm repo update
         run: |
-          cd GitOps-helm-ArgoCD
+          cd helm-repo
 
           git config user.name "github-actions"
           git config user.email "actions@github.com"

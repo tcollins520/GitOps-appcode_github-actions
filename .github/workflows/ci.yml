@@ -124,8 +124,7 @@ jobs:
 
       - name: Clone Helm repository
         run: |
-          git clone https://${{ secrets.HELM_REPO_USER }}:${{ secrets.GITOPS_PAT }}@github.com/${{ github.repository_owner }}/${{ env.HELM_REPO_NAME }}.git helm-repo
-
+          git clone https://${{ secrets.HELM_REPO_USER }}:${{ secrets.GITOPS_PAT }}@github.com/tcollins520/${{ env.HELM_REPO_NAME }}.git helm-repo
 
       - name: Update Helm values.yaml image and tag
         run: |
